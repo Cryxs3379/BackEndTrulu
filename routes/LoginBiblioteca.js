@@ -1,68 +1,54 @@
-//routes/LoginBiblioteca.js
 const express = require('express');
-const router = express.Router();
-const Usuario = require('../models/LoginBiblioteca');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const mediaPool = require('../mediaDb');
 
+const router = express.Router();
 
 // POST /api/login
 router.post('/login', async (req, res) => {
-  const { email, contrasena } = req.body;
+  const { email, password, contrasena } = req.body;
+  const plainPassword = password || contrasena;
+
+  if (!email || !plainPassword) {
+    return res.status(400).json({ message: 'Email y contraseña son requeridos' });
+  }
 
   try {
-    const user = await Usuario.findOne({ email, contrasena });
-    if (!user) return res.status(401).json({ message: 'Credenciales incorrectas' });
+    const { rows } = await mediaPool.query(
+      'SELECT id, email, password_hash, role, created_at FROM users WHERE email = $1 LIMIT 1',
+      [email]
+    );
 
-    // Devolver el usuario sin la contraseña
-    const { contrasena: _, ...userData } = user.toObject();
-    res.json(userData);
+    if (!rows.length) {
+      return res.status(401).json({ message: 'Credenciales incorrectas' });
+    }
+
+    const user = rows[0];
+    const passwordMatch = await bcrypt.compare(plainPassword, user.password_hash);
+    if (!passwordMatch) {
+      return res.status(401).json({ message: 'Credenciales incorrectas' });
+    }
+
+    const token = jwt.sign(
+      { id: user.id, role: user.role, email: user.email },
+      process.env.JWT_SECRET,
+      { expiresIn: '2h' }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        created_at: user.created_at
+      }
+    });
   } catch (err) {
+    console.error('Error during login:', err);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
-
-// PUT /api/usuarios/:id/like
-router.put('/usuarios/:id/like', async (req, res) => {
-    const { id } = req.params;
-    const pelicula = req.body;
-  
-    if (!pelicula || !pelicula._id) {
-      return res.status(400).json({ message: 'Película inválida' });
-    }
-  
-    try {
-      const user = await Usuario.findByIdAndUpdate(
-        id,
-        { $addToSet: { peliculaslike: pelicula } }, // guarda objeto completo
-        { new: true }
-      );
-  
-      if (!user) return res.status(404).json({ message: 'Usuario no encontrado' });
-      res.json(user);
-    } catch (err) {
-      console.error('❌ Error en backend:', err);
-      res.status(500).json({ message: 'Error al actualizar el usuario' });
-    }
-  });
-  // DELETE /api/usuarios/:id/like
-router.delete('/usuarios/:id/like', async (req, res) => {
-    const { id } = req.params;
-    const peliculaId = req.body._id;
-  
-    try {
-      const user = await Usuario.findById(id);
-      if (!user) return res.status(404).json({ message: 'Usuario no encontrado' });
-  
-      // Filtra las películas para quitar la que coincida por _id
-      user.peliculaslike = user.peliculaslike.filter(p => p._id !== peliculaId);
-      await user.save();
-  
-      res.json(user);
-    } catch (err) {
-      console.error('❌ Error al quitar like:', err);
-      res.status(500).json({ message: 'Error al quitar de favoritos' });
-    }
-  });
-  
-  
 
 module.exports = router;
