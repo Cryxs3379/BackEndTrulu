@@ -271,7 +271,7 @@ router.get('/playlists/:id', async (req, res) => {
     const tracks = await fetchPlaylistTracks(req.params.id);
 
     res.json({
-      ...playlist,
+      playlist,
       tracks
     });
   } catch (err) {
@@ -374,7 +374,7 @@ async function fetchPlaylistTracks(playlistId) {
      FROM tsc_playlist_tracks ppt
      JOIN tsc_tracks t ON t.id = ppt.track_id
      WHERE ppt.playlist_id = $1
-     ORDER BY COALESCE(ppt.position, ppt.added_at), ppt.added_at`,
+     ORDER BY (ppt.position IS NULL), ppt.position, ppt.added_at`,
     [playlistId]
   );
   return rows;
