@@ -42,7 +42,7 @@ router.get('/artists/:id', async (req, res) => {
 router.get('/artists/:id/tracks', async (req, res) => {
   try {
     const { rows } = await musicPool.query(
-      `SELECT id, title, filename, size, duration_seconds, year, created_at
+      `SELECT id, title, filename, size, duration_seconds, year, album, created_at
        FROM tsc_tracks
        WHERE artist_id = $1
        ORDER BY created_at ASC`,
@@ -55,10 +55,41 @@ router.get('/artists/:id/tracks', async (req, res) => {
   }
 });
 
+router.get('/artists/:id/albums', async (req, res) => {
+  try {
+    const { rows } = await musicPool.query(
+      `SELECT 
+         COALESCE(album, 'Sin álbum') AS name,
+         COUNT(*) AS track_count,
+         ARRAY_AGG(
+           json_build_object(
+             'id', id,
+             'title', title,
+             'filename', filename,
+             'size', size,
+             'duration_seconds', duration_seconds,
+             'year', year,
+             'album', album,
+             'created_at', created_at
+           ) ORDER BY created_at ASC
+         ) AS tracks
+       FROM tsc_tracks
+       WHERE artist_id = $1
+       GROUP BY album
+       ORDER BY name ASC`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching albums:', err);
+    res.status(500).json({ message: 'Error al obtener álbumes' });
+  }
+});
+
 router.get('/tracks/:id', async (req, res) => {
   try {
     const { rows } = await musicPool.query(
-      `SELECT id, title, filename, size, duration_seconds, year, artist_id, created_at
+      `SELECT id, title, filename, size, duration_seconds, year, album, artist_id, created_at
        FROM tsc_tracks
        WHERE id = $1 LIMIT 1`,
       [req.params.id]
@@ -146,7 +177,7 @@ router.get('/tracks/:id/stream', async (req, res) => {
 router.get('/favorites', async (req, res) => {
   try {
     const { rows } = await musicPool.query(
-      `SELECT t.id, t.title, t.filename, t.size, t.duration_seconds, t.year,
+      `SELECT t.id, t.title, t.filename, t.size, t.duration_seconds, t.year, t.album,
               t.artist_id, f.created_at
        FROM tsc_user_favorites f
        JOIN tsc_tracks t ON t.id = f.track_id
@@ -369,7 +400,7 @@ async function fetchPlaylistWithOwner(id) {
 
 async function fetchPlaylistTracks(playlistId) {
   const { rows } = await musicPool.query(
-    `SELECT t.id, t.title, t.filename, t.size, t.duration_seconds, t.year,
+    `SELECT t.id, t.title, t.filename, t.size, t.duration_seconds, t.year, t.album,
             t.artist_id, ppt.position, ppt.added_at
      FROM tsc_playlist_tracks ppt
      JOIN tsc_tracks t ON t.id = ppt.track_id
